@@ -30,35 +30,16 @@ module.exports = async (req, res) => {
       }
     ]);
 
-    // 2. Process with Gemini (Updated for 2026 Models)
+    // 2. DIAGNOSTIC MODE: List Available Models
     let aiResponse;
-    const modelsToTry = [
-      "gemini-3.1-flash", 
-      "gemini-3.1-pro", 
-      "gemini-2.0-flash", 
-      "gemini-1.5-flash"
-    ];
-    let lastError = null;
-
-    for (const modelName of modelsToTry) {
-      try {
-        console.log(`Trying model: ${modelName}`);
-        const model = genAI.getGenerativeModel({ model: modelName });
-        const result = await model.generateContent(text);
-        aiResponse = result.response.text();
-        if (aiResponse) {
-          console.log(`Successfully used model: ${modelName}`);
-          break; 
-        }
-      } catch (err) {
-        console.error(`Failed with ${modelName}:`, err.message);
-        lastError = err;
-      }
-    }
-
-    if (!aiResponse) {
-      console.error("All models failed. Last error details:", lastError);
-      aiResponse = "Lo siento, Mauricio. Hubo un error de conexión con la IA de Google. Revisa los logs de Vercel para ver los detalles del error.";
+    try {
+      console.log("Fetching available models...");
+      const modelsList = await genAI.listModels();
+      const modelIds = modelsList.models.map(m => m.name.replace("models/", ""));
+      aiResponse = "🔍 DIAGNÓSTICO MICNUX 2026:\n\nModelos detectados en tu API Key:\n" + modelIds.join("\n") + "\n\nCopia estos nombres y dímelos para configurar el definitivo.";
+    } catch (diagError) {
+      console.error("Diagnostic Error:", diagError);
+      aiResponse = "❌ Error en el diagnóstico: " + diagError.message;
     }
 
     // 3. Reply via Telegraf
