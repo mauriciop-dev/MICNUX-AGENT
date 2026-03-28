@@ -34,52 +34,54 @@ module.exports = async (req, res) => {
       console.error("Supabase Log Error (Ignored):", dbError.message);
     }
 
-    // 2. MULTI-MODEL RESILIENCY (GEMINI -> GROQ)
+    // 2. MULTI-MODEL RESILIENCY 2026 (GEMINI -> GROQ -> DEEPSEEK)
     let aiResponse;
-    const geminiModels = ["gemini-1.5-flash", "gemini-2.0-flash"];
-    let debugInfo = "🤖 DIAGNÓSTICO MICNUX:\n\n";
     
-    // 2a. Try Gemini
-    for (const modelId of geminiModels) {
-      try {
-        const model = genAI.getGenerativeModel({ model: modelId });
-        const result = await model.generateContent(text);
-        aiResponse = result.response.text();
-        if (aiResponse) break;
-      } catch (err) {
-        debugInfo += `❌ Gemini (${modelId}): ${err.message}\n`;
-      }
-    }
+    // 2a. Try Gemini (Silent Try)
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const result = await model.generateContent(text);
+      aiResponse = result.response.text();
+    } catch (e) { console.log("Gemini Skip..."); }
 
-    // 2b. Try GROQ (with detailed error capture)
+    // 2b. Try GROQ (Modern 2026 Model)
     if (!aiResponse && process.env.GROQ_API_KEY) {
       try {
         const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
-          headers: {
-            "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
-            "Content-Type": "application/json"
-          },
+          headers: { "Authorization": `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "llama3-70b-8192",
+            model: "llama-3.3-70b-versatile",
             messages: [{ role: "user", content: text }]
           })
         });
-        
-        if (!groqResponse.ok) {
-          const groqErrorData = await groqResponse.json();
-          debugInfo += `❌ Groq: [${groqResponse.status}] ${groqErrorData.error?.message || "Unknown error"}\n`;
-        } else {
+        if (groqResponse.ok) {
           const groqData = await groqResponse.json();
-          aiResponse = groqData.choices[0].message.content + "\n\n(⚡ Resiliencia: Groq)";
+          aiResponse = groqData.choices[0].message.content + "\n\n(⚡ Cerebro: Groq 2026)";
         }
-      } catch (groqError) {
-        debugInfo += `⚠️ Groq System Error: ${groqError.message}\n`;
-      }
+      } catch (e) { console.log("Groq Skip..."); }
+    }
+
+    // 2c. Try DEEPSEEK (The New Powerhouse)
+    if (!aiResponse && process.env.DEEPSEEK_API_KEY) {
+      try {
+        const dsResponse = await fetch("https://api.deepseek.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "deepseek-chat",
+            messages: [{ role: "user", content: text }]
+          })
+        });
+        if (dsResponse.ok) {
+          const dsData = await dsResponse.json();
+          aiResponse = dsData.choices[0].message.content + "\n\n(🌌 Cerebro: DeepSeek)";
+        }
+      } catch (e) { console.error("DeepSeek Failed:", e); }
     }
 
     if (!aiResponse) {
-      aiResponse = debugInfo + "\nRevisa tus variables en Vercel Dashboard.";
+      aiResponse = "🚨 ERROR TOTAL 2026: Todos los cerebros (Gemini, Groq y DeepSeek) fallaron. Revisa tus API Keys y cuotas en Vercel.";
     }
 
     // 3. Reply via Telegraf
