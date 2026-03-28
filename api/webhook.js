@@ -30,15 +30,27 @@ module.exports = async (req, res) => {
       }
     ]);
 
-    // 2. Process with Gemini
+    // 2. Process with Gemini (with Fallbacks)
     let aiResponse;
-    try {
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const result = await model.generateContent(text);
-      aiResponse = result.response.text();
-    } catch (aiError) {
-      console.error("Gemini Details:", aiError);
-      aiResponse = "Lo siento, Mauricio. Hubo un error al procesar tu mensaje con la IA. Logueé el error en Vercel.";
+    const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"];
+    let lastError = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Trying model: ${modelName}`);
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(text);
+        aiResponse = result.response.text();
+        if (aiResponse) break; 
+      } catch (err) {
+        console.error(`Failed with ${modelName}:`, err.message);
+        lastError = err;
+      }
+    }
+
+    if (!aiResponse) {
+      console.error("All models failed. Last error details:", lastError);
+      aiResponse = "Lo siento, Mauricio. Hubo un error de conexión con la IA de Google. Revisa los logs de Vercel para ver los detalles del error.";
     }
 
     // 3. Reply via Telegraf
