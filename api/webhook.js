@@ -37,8 +37,9 @@ module.exports = async (req, res) => {
     // 2. MULTI-MODEL RESILIENCY (GEMINI -> GROQ)
     let aiResponse;
     const geminiModels = ["gemini-1.5-flash", "gemini-2.0-flash"];
+    let debugInfo = "🤖 DIAGNÓSTICO MICNUX:\n\n";
     
-    // 2a. Try Gemini First
+    // 2a. Try Gemini
     for (const modelId of geminiModels) {
       try {
         const model = genAI.getGenerativeModel({ model: modelId });
@@ -46,14 +47,13 @@ module.exports = async (req, res) => {
         aiResponse = result.response.text();
         if (aiResponse) break;
       } catch (err) {
-        console.error(`Gemini ${modelId} failed:`, err.message);
+        debugInfo += `❌ Gemini (${modelId}): ${err.message}\n`;
       }
     }
 
-    // 2b. Emergency Fallback: GROQ (Using native fetch for speed and zero-configs)
+    // 2b. Try GROQ (with detailed error capture)
     if (!aiResponse && process.env.GROQ_API_KEY) {
       try {
-        console.log("Switching to GROQ for resiliency...");
         const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -65,15 +65,21 @@ module.exports = async (req, res) => {
             messages: [{ role: "user", content: text }]
           })
         });
-        const groqData = await groqResponse.json();
-        aiResponse = groqData.choices[0].message.content + "\n\n(⚡ Resiliencia: Respondiendo vía Groq)";
+        
+        if (!groqResponse.ok) {
+          const groqErrorData = await groqResponse.json();
+          debugInfo += `❌ Groq: [${groqResponse.status}] ${groqErrorData.error?.message || "Unknown error"}\n`;
+        } else {
+          const groqData = await groqResponse.json();
+          aiResponse = groqData.choices[0].message.content + "\n\n(⚡ Resiliencia: Groq)";
+        }
       } catch (groqError) {
-        console.error("GROQ Failure:", groqError);
+        debugInfo += `⚠️ Groq System Error: ${groqError.message}\n`;
       }
     }
 
     if (!aiResponse) {
-      aiResponse = "🚨 ERROR TOTAL: Todos los cerebros (Gemini y Groq) fallaron. Revisa tus API Keys y cuotas.";
+      aiResponse = debugInfo + "\nRevisa tus variables en Vercel Dashboard.";
     }
 
     // 3. Reply via Telegraf
