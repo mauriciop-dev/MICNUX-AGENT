@@ -20,15 +20,19 @@ module.exports = async (req, res) => {
     const userId = message.from.id;
     const userName = message.from.username || message.from.first_name;
 
-    // 1. Log in Supabase (Conversations)
-    await supabase.from("conversations_log").insert([
-      { 
-        user_id: userId.toString(), 
-        user_name: userName,
-        content: text, 
-        source: "telegram"
-      }
-    ]);
+    // 1. Log in Supabase (Conversations) - Optional
+    try {
+      await supabase.from("conversations_log").insert([
+        { 
+          user_id: userId.toString(), 
+          user_name: userName,
+          content: text, 
+          source: "telegram"
+        }
+      ]);
+    } catch (dbError) {
+      console.error("Supabase Log Error (Ignored):", dbError.message);
+    }
 
     // 2. MULTI-MODEL RESILIENCY (GEMINI -> GROQ)
     let aiResponse;
