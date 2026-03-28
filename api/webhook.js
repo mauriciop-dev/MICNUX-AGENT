@@ -30,9 +30,14 @@ module.exports = async (req, res) => {
       }
     ]);
 
-    // 2. Process with Gemini (with Fallbacks)
+    // 2. Process with Gemini (Updated for 2026 Models)
     let aiResponse;
-    const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"];
+    const modelsToTry = [
+      "gemini-3.1-flash", 
+      "gemini-3.1-pro", 
+      "gemini-2.0-flash", 
+      "gemini-1.5-flash"
+    ];
     let lastError = null;
 
     for (const modelName of modelsToTry) {
@@ -41,7 +46,10 @@ module.exports = async (req, res) => {
         const model = genAI.getGenerativeModel({ model: modelName });
         const result = await model.generateContent(text);
         aiResponse = result.response.text();
-        if (aiResponse) break; 
+        if (aiResponse) {
+          console.log(`Successfully used model: ${modelName}`);
+          break; 
+        }
       } catch (err) {
         console.error(`Failed with ${modelName}:`, err.message);
         lastError = err;
