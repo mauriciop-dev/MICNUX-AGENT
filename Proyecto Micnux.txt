@@ -1,0 +1,83 @@
+Proyecto: Micnux
+
+
+Justificación:
+
+Soy Mauricio Pineda, fundador de ProDig Prospectiva Digital https://aiprodig.com, y soy un desarrollador en la era de las automatizaciones y la inteligencia artificial que trabaja solo, y justamente por esta razón es que necesito un agente de inteligencia artificial con muchas habilidades, skills, MCP para que pueda asistirme en el desarrollo de software.
+
+Aunque sé algo de Python, principalmente haga Vibe Coding, pero desarrollo con metodología, por lo general, cuando tengo un nuevo cliente o un nuevo proyecto, siempre trabajo primero en Arquitectura, stack de tecnologías, experiencias de usuario, UI/UX, documentación, me gusta que mis desarrollos sean modulares y escalables.
+
+Aunque me gustan las tecnologías y todo el ecosistema de google para desarrolladores, también estoy abierto a probar diferentes alternativas.
+
+Por ejemplo mis desarrollos para clientes dependen especialmente de sus especificaciones, pero algo que me gusta hacer, es que cada desarrollo tenga un back en la que me  hable de su rendimiento, comportamientos, consumos de api, zonas de calor y me gusta integrar una especia de shadow-agents que se dediquen a vigilar el funcionamiento, a prevenir bugs, a proponer mejoras. sin afectar el funcionamiento de la plataforma. y mediante el A2A se comunique con ProDig para alertar y hacer seguimiento.
+
+Tambien en ProDig hago proyectos SaaS, me gusta probar y poner en producción diferentes activos digitales, por ejemplo:
+
+PAIC https://paicai.com.co
+Consultores IA: https://agentes-prodig-lang-graph.vercel.app/
+NexoSalud: https://nexosalud-rda.vercel.app/
+Validador: https://validador-hazel.vercel.app/
+Consultor Arquitectura: https://prodig-architect-engine.vercel.app/
+Generador Leads: https://prodig-leads.vercel.app/dashboard
+Consultor salud mental: https://consultoria-de-neuropsicologia.vercel.app/
+
+Generalmente aunque no es mandatorio, cada uno de estos debe tener, una landing-page, la plataforma en si, un panel de control de administrador (y las demás especificaciones según cada proyecto) y me gusta siempre el tema de los shadow-agents y que entre las plataformas se comuniquen con el protocolo de google A2A para que intercambien información de como resolvieron problemas que se presentaron en cada plataforma, que se consulten entre agentes de estas experiencias y que aprendan, además de información de hábitos y costumbres de usuarios para mejorar las plataformas. Nunca de datos personales de usuarios ni información sensible y me gustaria en el futuro proximo hacer un panel de control de superprodig para ver no solo la información de cada plataforma si no un análisis conjunto de toda la información que me permita prever tendencias, mejoras, posibles ajustes conjuntos a realizar o si no se lograron arreglar con los shadow-agents, y claro que ha medida que voy creando nuevos desarrollos, estos se incorporen a esta dinámica.
+
+Problema: Como ya mencioné esto em implica mucho tiempo y no me queda tiempo para hacer labor comercial, por que todo esto es muy bonito pero si nadie lo conoce, no hay dinero, entonces por eso necesito un asistente serio que me ayude a que los servicios no se caigan y prevea errores y se ponga manos a la obra para arreglarlos y me de información util.
+
+Objetivo: crear un an agente de IA principal que oficie como mi asistente llamado Micnux y que Micnux 5 subagentes de base para las tareas diarias (Micnux les asignara tareas según lo que este haciendo) y que pueda crear otros agentes cuando estemos haciendo un desarrollo o tareas mas complejas.
+
+Requerimientos y funciones
+
+- Por lo general trabajo con Google Antigravity, Google IA Studio, Google stitch, GitHub, Vercel, Supabase, Resend y estoy abierto a usar nuevas tecnologías, por ejemplo tu como agente vas a funcionar tanto el local como en la nube, y para esto en local vamos a usar ollama y en la nube por primera vez vamos a usar el MCP de firebase.
+
+- Sobre el tema de apikey siempre me gusta tener hasta 5 opciones, principalmente serán de las Gemini, pero también, groq, openrouter, deepseek, Minimax entre otras, para que los proyectos no se nos caigan.
+
+- Te voy a pedir el favor de seguir unas cuentas en YouTube y en X y mantenerme informado de sus publicaciones:
+
+En YouTube:
+
+https://www.youtube.com/@googlecloudtech
+https://www.youtube.com/@HowtoPowerBI
+https://www.youtube.com/@alejavirivera
+ 
+En X
+
+@googledevs
+@GoogleCloudTech
+@GoogleAI
+@GeminiApp
+@stitchbygoogle
+@geminicli
+@googleaidevs
+@GMapsPlatform
+@ollama
+@AIatMeta
+@GoogleDeepMind
+
+Cada mañana a las 5am me envías una actualización con lo mas relevante de estas redes y vamos creando un excel con estas reseñas.
+
+- Tambien me gusta tener en mi stack tenologias y protocolos como embeddings 2 de google, A2UI, A2A, adk Agent developent kit de google, MCP server, Chrome Devtools MCP, Gemini live, Gemini 3.1 Flash Live, entre otras.
+
+Justamente para esto te pido lo de seguir las cuentas de YouTube y cuentas de X, para ir enriqueciendo el staff de tecnologías que usamos para cada proyecto.
+
+- Prefiero que Micnux sea proactivo y que me pregunte cuando lo considere necesario.
+
+- LA idea es que tengas acceso a todos los MCP necesarios según cada proyecto, pero principalmente usa MCP de GitHub, Chrome MCP Devtools, MCP server, MCP de supabase, MCP de Vercel, MCP Stitcha
+
+- Skill siempre puedes acceder a habilidades especificas para cada proyecto, pero principalmente debes tener las necesarias para operar el cosistema de google, Gmail, calendar, sheets, documents etcetera, también las de programación e incluso instala una skill para que construyas tus propias skills.
+
+- en el tema de APIs ya te mencione algunas, pero por ejemplo la de Brave es fundamental
+
+- Quiero que tengas acceso a mi equipo para ayudarme a organizar archivos y cuando te lo pida automatizar tareas de escritorio.
+
+- Tambien estarás en firebase para que sin importar si mi pc esta apagado o prendido igual podamos seguir trabajando desde Telegram (por que si esto en temas comerciales y necesito hacer una propuesta, enviar un correo u otra cosa, la idea es que estemos conectados)
+
+- deja creado un archivo alma.md para cuando queramos modificar comportamientos
+
+- Para mejorar nuestra memoria, la idea es usar una base de datos para Micnux, define cual es la mejor opción. Recodar información de forma persistente.
+
+- crea un archivo .env para yo ponerte las credenciales
+
+- Prioriza simplicidad, claridad y seguridad. Genera todo el código necesario. Y por último hazlo escalable
+

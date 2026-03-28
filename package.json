@@ -1,0 +1,14 @@
+{
+  "name": "micnux-agent-vercel",
+  "version": "1.0.0",
+  "main": "api/webhook.js",
+  "dependencies": {
+    "telegraf": "^4.16.2",
+    "@google/generative-ai": "^0.3.1",
+    "@supabase/supabase-js": "^2.39.8",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}

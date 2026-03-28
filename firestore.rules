@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false; // Por defecto cerrado, la funcion lo usa con privilegios de admin
+    }
+    match /conversations_log/{doc} {
+        allow read, write: if true; // Opcional: ajustar segun necesidad
+    }
+  }
+}
