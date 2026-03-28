@@ -31,16 +31,22 @@ module.exports = async (req, res) => {
     ]);
 
     // 2. Process with Gemini
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const result = await model.generateContent(text);
-    const aiResponse = result.response.text();
+    let aiResponse;
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const result = await model.generateContent(text);
+      aiResponse = result.response.text();
+    } catch (aiError) {
+      console.error("Gemini Details:", aiError);
+      aiResponse = "Lo siento, Mauricio. Hubo un error al procesar tu mensaje con la IA. Logueé el error en Vercel.";
+    }
 
     // 3. Reply via Telegraf
     await bot.telegram.sendMessage(userId, aiResponse);
 
     res.status(200).send("OK");
   } catch (error) {
-    console.error("Webhook Error:", error);
-    res.status(200).send("OK"); // Respond 200 to Telegram even on error to avoid retry loops
+    console.error("Webhook General Error:", error);
+    res.status(200).send("OK");
   }
 };
