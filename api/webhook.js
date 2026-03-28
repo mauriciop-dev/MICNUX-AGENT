@@ -30,16 +30,26 @@ module.exports = async (req, res) => {
       }
     ]);
 
-    // 2. DIAGNOSTIC MODE: List Available Models
+    // 2. DIAGNOSTIC + FALLBACK (MARCH 2026)
     let aiResponse;
-    try {
-      console.log("Fetching available models...");
-      const modelsList = await genAI.listModels();
-      const modelIds = modelsList.models.map(m => m.name.replace("models/", ""));
-      aiResponse = "🔍 DIAGNÓSTICO MICNUX 2026:\n\nModelos detectados en tu API Key:\n" + modelIds.join("\n") + "\n\nCopia estos nombres y dímelos para configurar el definitivo.";
-    } catch (diagError) {
-      console.error("Diagnostic Error:", diagError);
-      aiResponse = "❌ Error en el diagnóstico: " + diagError.message;
+    const modelsToTry = ["gemini-3.1-flash", "gemini-2.0-flash", "gemini-pro"];
+    let errorReport = "";
+
+    for (const modelId of modelsToTry) {
+      try {
+        console.log(`Checking ${modelId}...`);
+        const model = genAI.getGenerativeModel({ model: modelId });
+        const result = await model.generateContent(text);
+        aiResponse = result.response.text();
+        if (aiResponse) break;
+      } catch (err) {
+        errorReport += `❌ ${modelId}: ${err.message}\n`;
+        console.error(`Error with ${modelId}:`, err);
+      }
+    }
+
+    if (!aiResponse) {
+      aiResponse = "🚨 ERROR DE CONEXIÓN (2026):\n\n" + errorReport + "\nRevisa tu GEMINI_API_KEY en Vercel.";
     }
 
     // 3. Reply via Telegraf
