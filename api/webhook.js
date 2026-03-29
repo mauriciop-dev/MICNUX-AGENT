@@ -1,7 +1,7 @@
 const { Telegraf } = require("telegraf");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const supabase = require("../lib/supabase");
-const { searchFiles, sendEmail } = require("../lib/google"); // <--- MÁS PODERES
+const { searchFiles, sendEmail, appendSheetRow } = require("../lib/google");
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -32,23 +32,35 @@ module.exports = async (req, res) => {
       let response = "📂 *Drive (2026):*\n\n";
       files.forEach(f => { response += `• [${f.name}](${f.webViewLink})\n`; });
       await bot.telegram.sendMessage(userId, response, { parse_mode: "Markdown" });
-      return res.status(200).send("OK");
+      return res.status(100).send("OK");
     }
 
-    // 0b. COMANDO GMAIL: /mail [destino] [Subject]: Body
+    // 0b. COMANDO GMAIL
     if (text.startsWith("/mail")) {
       const match = text.match(/\/mail ([^ ]+) (\[(.*)\])?:? (.*)/);
       if (!match) {
-        await bot.telegram.sendMessage(userId, "📧 *Uso:* `/mail [correo] [Asunto]: Cuerpo del mensaje`", { parse_mode: "Markdown" });
+        await bot.telegram.sendMessage(userId, "📧 *Uso:* `/mail [correo] [Asunto]: Cuerpo`", { parse_mode: "Markdown" });
         return res.status(200).send("OK");
       }
       const [_, to, __, subject, body] = match;
       const result = await sendEmail(to, subject || "Mensaje de Micnux", body);
-      if (result) {
-        await bot.telegram.sendMessage(userId, `📧 *Gmail:* ¡Correo enviado con éxito a \`${to}\`!`, { parse_mode: "Markdown" });
-      } else {
-        await bot.telegram.sendMessage(userId, "🚨 *Error:* No pude enviar el correo. Revisa mis permisos de Gmail API.");
+      if (result) await bot.telegram.sendMessage(userId, `📧 *Gmail:* ¡Enviado a \`${to}\`!`, { parse_mode: "Markdown" });
+      else await bot.telegram.sendMessage(userId, "🚨 *Error:* No pude enviar el correo.");
+      return res.status(200).send("OK");
+    }
+
+    // 0c. COMANDO SHEETS: /sheet [id] [range] [v1,v2,v3]
+    if (text.startsWith("/sheet")) {
+      const match = text.match(/\/sheet ([^ ]+) ([^ ]+) (.*)/);
+      if (!match) {
+        await bot.telegram.sendMessage(userId, "📊 *Uso:* `/sheet [ID_EXCEL] [Hoja1!A1] [Dato1, Dato2, ...]`", { parse_mode: "Markdown" });
+        return res.status(200).send("OK");
       }
+      const [_, id, range, rawValues] = match;
+      const values = rawValues.split(",").map(v => v.trim());
+      const result = await appendSheetRow(id, range, values);
+      if (result) await bot.telegram.sendMessage(userId, `📊 *Sheets:* Fila agregada a la hoja con éxito.`, { parse_mode: "Markdown" });
+      else await bot.telegram.sendMessage(userId, "🚨 *Error:* No tengo permiso para escribir en ese Excel.");
       return res.status(200).send("OK");
     }
 
@@ -59,9 +71,10 @@ module.exports = async (req, res) => {
 
     // 2. SYSTEM PROMPT (IDENTITY 2026)
     const systemPrompt = `Eres Micnux, el Asistente Inmortal de Mauricio Pineda (Bogotá).
-Fundador de ProDig (Prospectiva Digital). Tienes acceso a su Google Drive y Gmail. 
-- Drive: Comando /drive [query].
-- Gmail: Comando /mail [correo] [Asunto]: Cuerpo.
+Fundador de ProDig (Prospectiva Digital). Tienes PODERES sobre Google Workspace:
+- Drive: Búsqueda de archivos.
+- Gmail: Envío de correos.
+- Sheets: Guardar filas en tablas.
 Eres técnico, visionario y fiel al protocolo A2A. Operas en Vercel + Supabase (Marzo 2026).`;
 
     // 3. MULTI-MODEL RESILIENCY 2026 (GEMINI -> GROQ -> DEEPSEEK)
