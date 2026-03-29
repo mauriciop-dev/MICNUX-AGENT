@@ -2,7 +2,6 @@ const { Telegraf } = require("telegraf");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const Groq = require("groq-sdk");
 const axios = require("axios");
-const FormData = require("form-data");
 const supabase = require("../lib/supabase");
 const { 
   searchFiles, sendEmail, listEmails, appendSheetRow, readSheet, 
@@ -23,13 +22,6 @@ const geminiTools = [{
   ]
 }];
 
-const groqTools = [
-  { type: "function", function: { name: "search_drive", description: "Drive Search", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
-  { type: "function", function: { name: "send_email", description: "Send Gmail", parameters: { type: "object", properties: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" } }, required: ["to", "subject", "body"] } } },
-  { type: "function", function: { name: "read_sheet", description: "Read Sheets", parameters: { type: "object", properties: { id: { type: "string" }, range: { type: "string" } }, required: ["id", "range"] } } },
-  { type: "function", function: { name: "add_event", description: "Add Calendar", parameters: { type: "object", properties: { summary: { type: "string" }, start: { type: "string" }, end: { type: "string" } }, required: ["summary", "start", "end"] } } }
-];
-
 async function executeTool(name, args) {
   const id = args.id || args.spreadsheetId || args.docId;
   const start = args.start || args.startTime;
@@ -38,28 +30,7 @@ async function executeTool(name, args) {
   if (name === "send_email") return await sendEmail(args.to, args.subject, args.body);
   if (name === "read_sheet") return await readSheet(id, args.range);
   if (name === "add_event") return await createCalendarEvent(args.summary, start, end);
-  return "Error: Tool unavailable.";
-}
-
-/**
- * Motor Auditivo Sónico: Transcribe notas de voz vía Groq Whisper
- */
-async function transcribeVoice(fileId) {
-  try {
-    const fileLink = await bot.telegram.getFileLink(fileId);
-    const audioRes = await axios.get(fileLink.href, { responseType: 'arraybuffer' });
-    const buffer = Buffer.from(audioRes.data);
-    
-    const form = new FormData();
-    form.append('file', buffer, { filename: 'voice.oga', contentType: 'audio/ogg' });
-    form.append('model', 'whisper-large-v3');
-    form.append('language', 'es');
-
-    const response = await axios.post('https://api.groq.com/openai/v1/audio/transcriptions', form, {
-      headers: { ...form.getHeaders(), 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` }
-    });
-    return response.data.text;
-  } catch (error) { return `ERROR_TRANSCRIPCION: ${error.message}`; }
+  return "Error: Herramienta no disponible.";
 }
 
 module.exports = async (req, res) => {
@@ -67,73 +38,66 @@ module.exports = async (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(200).send("OK");
 
-  let transcription = "";
-  if (message.voice) {
-    transcription = await transcribeVoice(message.voice.file_id);
-    console.log("Audio Transcrito:", transcription);
-  }
-
-  const text = transcription || message.text;
-  if (!text) return res.status(200).send("OK");
-
   const userId = message.from.id;
   const userName = message.from.username || message.from.first_name;
+  let audioData = null;
+
+  // 🎙️ PROCESAMIENTO MULTIMODAL (Si hay voz)
+  if (message.voice) {
+    try {
+      const fileLink = await bot.telegram.getFileLink(message.voice.file_id);
+      const audioRes = await axios.get(fileLink.href, { responseType: 'arraybuffer' });
+      const base64Audio = Buffer.from(audioRes.data).toString("base64");
+      audioData = { inlineData: { mimeType: "audio/ogg", data: base64Audio } };
+    } catch (e) { console.log("Audio Download Error:", e.message); }
+  }
+
+  const userText = message.text || "";
+  if (!userText && !audioData) return res.status(200).send("OK");
 
   try {
     let historyContext = "";
     try {
       const { data } = await supabase.from("conversations_log").select("content, source").eq("user_id", userId.toString()).order("created_at", { ascending: false }).limit(5);
       if (data) historyContext = "CONTEXTO RECIENTE:\n" + data.reverse().map(l => `- ${l.source === "telegram" ? "Usuario" : "Micnux"}: ${l.content}`).join("\n");
-      await supabase.from("conversations_log").insert([{ user_id: userId.toString(), user_name: userName, content: text, source: "telegram" }]);
+      await supabase.from("conversations_log").insert([{ user_id: userId.toString(), user_name: userName, content: userText || "[Audio de voz]", source: "telegram" }]);
     } catch (e) {}
 
     const today = new Date().toLocaleString("es-CO", { timeZone: "America/Bogota" });
-    const systemPrompt = `Eres Micnux, el Asistente Soberano v.2.0. AHORA ES: ${today}.
+    const systemPrompt = `Eres Micnux, el Asistente Soberano. AHORA ES: ${today}.
 Recuerda el contexto: ${historyContext}.
-Si el texto viene de una nota de voz, procesalo IGUAL que el texto escrito. Eres capaz de usar tus herramientas con comandos de voz.`;
+Si el usuario envía audio, escúchalo y procesa sus órdenes usando tus herramientas de Drive, Gmail, Calendar y Sheets.`;
 
     let aiResponse;
-    let brain;
-    try {
-      brain = "Gemini Sovereign";
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash", systemInstruction: systemPrompt, tools: geminiTools });
-      const chat = model.startChat();
-      let result = await chat.sendMessage(text);
-      const calls = result.response.functionCalls();
-      if (calls && calls.length > 0) {
-        const toolResults = [];
-        for (const f of calls) {
-          const r = await executeTool(f.name, f.args);
-          toolResults.push({ functionResponse: { name: f.name, response: { content: JSON.stringify(r) } } });
-        }
-        const final = await chat.sendMessage(toolResults);
-        aiResponse = final.response.text();
-      } else aiResponse = result.response.text();
-    } catch (e) {
-      brain = "Groq Sovereign";
-      const response = await groq.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: text }],
-        tools: groqTools
-      });
-      const tool_calls = response.choices[0].message.tool_calls;
-      if (tool_calls) {
-        const messages = [{ role: "system", content: systemPrompt }, { role: "user", content: text }, response.choices[0].message];
-        for (const tc of tool_calls) {
-          const r = await executeTool(tc.function.name, JSON.parse(tc.function.arguments));
-          messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(r) });
-        }
-        const final = await groq.chat.completions.create({ model: "llama-3.3-70b-versatile", messages });
-        aiResponse = final.choices[0].message.content;
-      } else aiResponse = response.choices[0].message.content;
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash", systemInstruction: systemPrompt, tools: geminiTools });
+
+    // 🧠 LÓGICA MULTIMODAL (Gemini procesa texto y audio a la vez)
+    const promptParts = [userText];
+    if (audioData) promptParts.push(audioData);
+
+    const result = await model.generateContent(promptParts);
+    const response = await result.response;
+    const calls = response.functionCalls();
+
+    if (calls && calls.length > 0) {
+      const toolResults = [];
+      for (const f of calls) {
+        const r = await executeTool(f.name, f.args);
+        toolResults.push({ functionResponse: { name: f.name, response: { content: JSON.stringify(r) } } });
+      }
+      // Gemini 1.5 es un Agente real, procesa los resultados de las herramientas
+      const finalResult = await model.generateContent([...promptParts, { role: "model", content: { parts: response.candidates[0].content.parts } }, { role: "user", content: { parts: toolResults } }]);
+      aiResponse = finalResult.response.text();
+    } else {
+      aiResponse = response.text();
     }
 
-    const finalMsg = transcription ? `🎙️ **Nota de Voz Transcrita:**\n"${transcription}"\n\n${aiResponse}\n\n(⚡ Cerebro: ${brain})` : `${aiResponse}\n\n(⚡ Cerebro: ${brain})`;
+    const finalMsg = `${aiResponse}\n\n(⚡ Cerebro: Gemini Native AI Master)`;
     try { await supabase.from("conversations_log").insert([{ user_id: userId.toString(), user_name: userName, content: aiResponse, source: "micnux" }]); } catch (e) {}
     try { await bot.telegram.sendMessage(userId, finalMsg, { parse_mode: "Markdown" }); } catch (p) { await bot.telegram.sendMessage(userId, finalMsg); }
     return res.status(200).send("OK");
   } catch (error) {
-    await bot.telegram.sendMessage(userId, "🚨 *Critical Audio Crash:* " + error.message);
+    await bot.telegram.sendMessage(userId, "🚨 *Critical AI Crash:* " + error.message);
     return res.status(200).send("OK");
   }
 };
