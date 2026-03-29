@@ -2,6 +2,7 @@ const { Telegraf } = require("telegraf");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const Groq = require("groq-sdk");
 const axios = require("axios");
+const FormData = require("form-data");
 const supabase = require("../lib/supabase");
 const { 
   searchFiles, sendEmail, listEmails, appendSheetRow, readSheet, 
@@ -22,15 +23,52 @@ const geminiTools = [{
   ]
 }];
 
+const groqTools = [
+  { type: "function", function: { name: "search_drive", description: "Drive search", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
+  { type: "function", function: { name: "send_email", description: "Gmail Nodemailer", parameters: { type: "object", properties: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" } }, required: ["to", "subject", "body"] } } },
+  { type: "function", function: { name: "read_sheet", description: "Sheet reader", parameters: { type: "object", properties: { id: { type: "string" }, range: { type: "string" } }, required: ["id", "range"] } } },
+  { type: "function", function: { name: "add_event", description: "Add Calendar", parameters: { type: "object", properties: { summary: { type: "string" }, start: { type: "string" }, end: { type: "string" } }, required: ["summary", "start", "end"] } } }
+];
+
 async function executeTool(name, args) {
   const id = args.id || args.spreadsheetId || args.docId;
   const start = args.start || args.startTime;
   const end = args.end || args.endTime;
-  if (name === "search_drive") return await searchFiles(args.query);
-  if (name === "send_email") return await sendEmail(args.to, args.subject, args.body);
-  if (name === "read_sheet") return await readSheet(id, args.range);
-  if (name === "add_event") return await createCalendarEvent(args.summary, start, end);
+  try {
+    if (name === "search_drive") return await searchFiles(args.query);
+    if (name === "send_email") return await sendEmail(args.to, args.subject, args.body);
+    if (name === "read_sheet") return await readSheet(id, args.range);
+    if (name === "add_event") return await createCalendarEvent(args.summary, start, end);
+  } catch (e) { return `ERROR_TOOL_${name.toUpperCase()}: ${e.message}`; }
   return "Error: Herramienta no disponible.";
+}
+
+/**
+ * Motor Auditivo Sónico v2 (Corregido)
+ */
+async function transcribeVoice(fileId) {
+  try {
+    const fileLink = await bot.telegram.getFileLink(fileId);
+    const audioRes = await axios.get(fileLink.href, { responseType: 'arraybuffer' });
+    const buffer = Buffer.from(audioRes.data);
+    
+    // 🛠️ FIX: Formato de envío corregido para Groq
+    const form = new FormData();
+    form.append('file', buffer, { filename: 'voice.ogg', contentType: 'audio/ogg' });
+    form.append('model', 'whisper-large-v3');
+    form.append('language', 'es');
+
+    const response = await axios.post('https://api.groq.com/openai/v1/audio/transcriptions', form, {
+      headers: { 
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        ...form.getHeaders()
+      }
+    });
+    return response.data.text;
+  } catch (error) { 
+    console.error("Transcription Failed:", error.response?.data || error.message);
+    return `ERROR_TRANSCRIPCION_REAL: ${error.message}`; 
+  }
 }
 
 module.exports = async (req, res) => {
@@ -40,71 +78,66 @@ module.exports = async (req, res) => {
 
   const userId = message.from.id;
   const userName = message.from.username || message.from.first_name;
-  let audioData = null;
+
+  let userText = message.text || "";
+  let transcription = "";
 
   if (message.voice) {
-    try {
-      const fileLink = await bot.telegram.getFileLink(message.voice.file_id);
-      const audioRes = await axios.get(fileLink.href, { responseType: 'arraybuffer' });
-      const base64Audio = Buffer.from(audioRes.data).toString("base64");
-      audioData = { inlineData: { mimeType: "audio/ogg", data: base64Audio } };
-    } catch (e) { console.log("Audio Download Error:", e.message); }
+    transcription = await transcribeVoice(message.voice.file_id);
+    userText = transcription;
   }
 
-  const userText = message.text || "";
-  if (!userText && !audioData) return res.status(200).send("OK");
+  if (!userText) return res.status(200).send("OK");
 
   try {
-    let historyContext = "";
-    try {
-      const { data } = await supabase.from("conversations_log").select("content, source").eq("user_id", userId.toString()).order("created_at", { ascending: false }).limit(5);
-      if (data) historyContext = "CONTEXTO RECIENTE:\n" + data.reverse().map(l => `- ${l.source === "telegram" ? "Usuario" : "Micnux"}: ${l.content}`).join("\n");
-      await supabase.from("conversations_log").insert([{ user_id: userId.toString(), user_name: userName, content: userText || "[Audio de voz]", source: "telegram" }]);
-    } catch (e) {}
-
     const today = new Date().toLocaleString("es-CO", { timeZone: "America/Bogota" });
-    const systemPrompt = `Eres Micnux, el Asistente Soberano de Nueva Generación. AHORA ES: ${today}.
-Recuerda el contexto: ${historyContext}.
-Usas el cerebro Gemini 2.0 Flash. Escucha el audio nativo y procesalo con tus herramientas.`;
+    const systemPrompt = `Eres Micnux, el Asistente Soberano. AHORA ES: ${today}.
+Tienes control total sobre Drive, Gmail (vía Nodemailer), Sheets y Calendar. No pidas permisos. Ejecuta órdenes directamente.`;
 
-    // 🤴 ACTUALIZACIÓN A GEMINI 2.0 FLASH
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash", systemInstruction: systemPrompt, tools: geminiTools });
-
-    const promptParts = [userText];
-    if (audioData) promptParts.push(audioData);
-
-    let result = await model.generateContent(promptParts);
     let aiResponse;
-    const response = await result.response;
-    const calls = response.functionCalls();
+    let brain;
 
-    if (calls && calls.length > 0) {
-      const toolResults = [];
-      for (const f of calls) {
-        const r = await executeTool(f.name, f.args);
-        toolResults.push({ functionResponse: { name: f.name, response: { content: JSON.stringify(r) } } });
-      }
-      const finalResult = await model.generateContent([...promptParts, { role: "model", content: { parts: response.candidates[0].content.parts } }, { role: "user", content: { parts: toolResults } }]);
-      aiResponse = finalResult.response.text();
-    } else {
-      aiResponse = response.text();
+    try {
+      // 🧠 CEREBRO PRINCIPAL: GEMINI 1.5 FLASH (Usando alias latest)
+      brain = "Gemini Sovereign";
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest", systemInstruction: systemPrompt, tools: geminiTools });
+      const chat = model.startChat();
+      let result = await chat.sendMessage(userText);
+      const calls = result.response.functionCalls();
+      if (calls && calls.length > 0) {
+        const toolResults = [];
+        for (const f of calls) {
+          const r = await executeTool(f.name, f.args);
+          toolResults.push({ functionResponse: { name: f.name, response: { content: JSON.stringify(r) } } });
+        }
+        const final = await chat.sendMessage(toolResults);
+        aiResponse = final.response.text();
+      } else aiResponse = result.response.text();
+    } catch (e) {
+      // 🛡️ ESCUDO DE SOBERANÍA: GROQ LLAMA 3.3 CON HERRAMIENTAS
+      brain = "Groq Sovereign (Escudo Activo)";
+      const response = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userText }],
+        tools: groqTools
+      });
+      const tool_calls = response.choices[0].message.tool_calls;
+      if (tool_calls) {
+        const messages = [{ role: "system", content: systemPrompt }, { role: "user", content: userText }, response.choices[0].message];
+        for (const tc of tool_calls) {
+          const r = await executeTool(tc.function.name, JSON.parse(tc.function.arguments));
+          messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(r) });
+        }
+        const final = await groq.chat.completions.create({ model: "llama-3.3-70b-versatile", messages });
+        aiResponse = final.choices[0].message.content;
+      } else aiResponse = response.choices[0].message.content;
     }
 
-    const finalMsg = `${aiResponse}\n\n(⚡ Cerebro: Gemini 2.0 Native)`;
-    try { await supabase.from("conversations_log").insert([{ user_id: userId.toString(), user_name: userName, content: aiResponse, source: "micnux" }]); } catch (e) {}
+    const finalMsg = transcription ? `🎙️ **Nota de Voz Transcrita:**\n"${transcription}"\n\n${aiResponse}\n\n(⚡ Cerebro: ${brain})` : `${aiResponse}\n\n(⚡ Cerebro: ${brain})`;
     try { await bot.telegram.sendMessage(userId, finalMsg, { parse_mode: "Markdown" }); } catch (p) { await bot.telegram.sendMessage(userId, finalMsg); }
     return res.status(200).send("OK");
   } catch (error) {
-    // 🛡️ FALLBACK A GROQ SI GEMINI 2.0 TAMBIÉN FALLA (Resiliencia Extrema)
-    try {
-      const response = await groq.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        messages: [{ role: "system", content: "Eres el sistema de emergencia de Micnux." }, { role: "user", content: userText || "Voz recibida" }]
-      });
-      await bot.telegram.sendMessage(userId, response.choices[0].message.content + "\n\n(🛡️ Escudo de Emergencia: Groq)");
-    } catch (e) {
-      await bot.telegram.sendMessage(userId, "🚨 *Error Crítico de Generación:* " + error.message);
-    }
+    await bot.telegram.sendMessage(userId, "🚨 *Error Crítico de Micnux:* " + error.message);
     return res.status(200).send("OK");
   }
 };
