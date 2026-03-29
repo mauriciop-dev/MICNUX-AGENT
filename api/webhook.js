@@ -34,17 +34,30 @@ module.exports = async (req, res) => {
       console.error("Supabase Log Error (Ignored):", dbError.message);
     }
 
+    // 0. SYSTEM PROMPT (IDENTITY 2026)
+    const systemPrompt = `Eres Micnux, el Asistente Inmortal de Mauricio Pineda (Bogotá).
+Fundador de ProDig (Prospectiva Digital). Tu misión es gestionar sus activos: PAIC, Consultores IA, NexoSalud, Validador y más.
+Tu personalidad es técnica, visionaria, proactiva y fiel al protocolo A2A. 
+Responde siempre con autoridad técnica y lealtad a Mauricio. Estás operando en Vercel + Supabase en Marzo de 2026.`;
+
     // 2. MULTI-MODEL RESILIENCY 2026 (GEMINI -> GROQ -> DEEPSEEK)
     let aiResponse;
+    const geminiModels = ["gemini-1.5-flash", "gemini-2.0-flash"];
     
-    // 2a. Try Gemini (Silent Try)
-    try {
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const result = await model.generateContent(text);
-      aiResponse = result.response.text();
-    } catch (e) { console.log("Gemini Skip..."); }
+    // 2a. Try Gemini
+    for (const modelId of geminiModels) {
+      try {
+        const model = genAI.getGenerativeModel({ 
+          model: modelId,
+          systemInstruction: systemPrompt 
+        });
+        const result = await model.generateContent(text);
+        aiResponse = result.response.text();
+        if (aiResponse) break;
+      } catch (e) { console.log(`Gemini ${modelId} skip...`); }
+    }
 
-    // 2b. Try GROQ (Modern 2026 Model)
+    // 2b. Try GROQ (llama-3.3-70b-versatile)
     if (!aiResponse && process.env.GROQ_API_KEY) {
       try {
         const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -52,17 +65,20 @@ module.exports = async (req, res) => {
           headers: { "Authorization": `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
           body: JSON.stringify({
             model: "llama-3.3-70b-versatile",
-            messages: [{ role: "user", content: text }]
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: text }
+            ]
           })
         });
         if (groqResponse.ok) {
           const groqData = await groqResponse.json();
           aiResponse = groqData.choices[0].message.content + "\n\n(⚡ Cerebro: Groq 2026)";
         }
-      } catch (e) { console.log("Groq Skip..."); }
+      } catch (e) { console.log("Groq System Error:", e.message); }
     }
 
-    // 2c. Try DEEPSEEK (The New Powerhouse)
+    // 2c. Try DEEPSEEK
     if (!aiResponse && process.env.DEEPSEEK_API_KEY) {
       try {
         const dsResponse = await fetch("https://api.deepseek.com/v1/chat/completions", {
@@ -70,14 +86,17 @@ module.exports = async (req, res) => {
           headers: { "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}`, "Content-Type": "application/json" },
           body: JSON.stringify({
             model: "deepseek-chat",
-            messages: [{ role: "user", content: text }]
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: text }
+            ]
           })
         });
         if (dsResponse.ok) {
           const dsData = await dsResponse.json();
           aiResponse = dsData.choices[0].message.content + "\n\n(🌌 Cerebro: DeepSeek)";
         }
-      } catch (e) { console.error("DeepSeek Failed:", e); }
+      } catch (e) { console.error("DeepSeek Failed:", e.message); }
     }
 
     if (!aiResponse) {
