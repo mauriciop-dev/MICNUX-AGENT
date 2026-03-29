@@ -1,7 +1,7 @@
 const { Telegraf } = require("telegraf");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const supabase = require("../lib/supabase");
-const { searchFiles } = require("../lib/google"); // <--- NUEVO PODER
+const { searchFiles, sendEmail } = require("../lib/google"); // <--- MÁS PODERES
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -21,37 +21,47 @@ module.exports = async (req, res) => {
     const userId = message.from.id;
     const userName = message.from.username || message.from.first_name;
 
-    // 0. COMANDO DIRECTO: /drive
+    // 0a. COMANDO DRIVE
     if (text.startsWith("/drive")) {
       const query = text.replace("/drive", "").trim();
       const files = await searchFiles(query);
-      
       if (!files || files.length === 0) {
-        await bot.telegram.sendMessage(userId, "📂 *Google Drive:* No encontré nada o no me has compartido carpetas.\n\n_Tip: Invítame a colaborar: agente-micnux@gen-lang-client-0221087124.iam.gserviceaccount.com_", { parse_mode: "Markdown" });
+        await bot.telegram.sendMessage(userId, "📂 *Google Drive:* No encontré nada. ¿Me compartiste la carpeta?", { parse_mode: "Markdown" });
         return res.status(200).send("OK");
       }
-
-      let response = "📂 *Archivos encontrados en tu Drive (2026):*\n\n";
-      files.forEach(f => {
-        response += `• [${f.name}](${f.webViewLink})\n`;
-      });
+      let response = "📂 *Drive (2026):*\n\n";
+      files.forEach(f => { response += `• [${f.name}](${f.webViewLink})\n`; });
       await bot.telegram.sendMessage(userId, response, { parse_mode: "Markdown" });
       return res.status(200).send("OK");
     }
 
-    // 1. Log in Supabase (Conversations) - Optional
-    try {
-      await supabase.from("conversations_log").insert([
-        { user_id: userId.toString(), user_name: userName, content: text, source: "telegram" }
-      ]);
-    } catch (dbError) {
-      console.error("Supabase Log Error (Ignored):", dbError.message);
+    // 0b. COMANDO GMAIL: /mail [destino] [Subject]: Body
+    if (text.startsWith("/mail")) {
+      const match = text.match(/\/mail ([^ ]+) (\[(.*)\])?:? (.*)/);
+      if (!match) {
+        await bot.telegram.sendMessage(userId, "📧 *Uso:* `/mail [correo] [Asunto]: Cuerpo del mensaje`", { parse_mode: "Markdown" });
+        return res.status(200).send("OK");
+      }
+      const [_, to, __, subject, body] = match;
+      const result = await sendEmail(to, subject || "Mensaje de Micnux", body);
+      if (result) {
+        await bot.telegram.sendMessage(userId, `📧 *Gmail:* ¡Correo enviado con éxito a \`${to}\`!`, { parse_mode: "Markdown" });
+      } else {
+        await bot.telegram.sendMessage(userId, "🚨 *Error:* No pude enviar el correo. Revisa mis permisos de Gmail API.");
+      }
+      return res.status(200).send("OK");
     }
+
+    // 1. Log en Supabase
+    try {
+      await supabase.from("conversations_log").insert([{ user_id: userId.toString(), user_name: userName, content: text, source: "telegram" }]);
+    } catch (e) { console.error("Log Error:", e.message); }
 
     // 2. SYSTEM PROMPT (IDENTITY 2026)
     const systemPrompt = `Eres Micnux, el Asistente Inmortal de Mauricio Pineda (Bogotá).
-Fundador de ProDig (Prospectiva Digital). Tienes acceso a su Google Drive. 
-Si el usuario te pide un archivo, dile que use el comando /drive seguido del nombre.
+Fundador de ProDig (Prospectiva Digital). Tienes acceso a su Google Drive y Gmail. 
+- Drive: Comando /drive [query].
+- Gmail: Comando /mail [correo] [Asunto]: Cuerpo.
 Eres técnico, visionario y fiel al protocolo A2A. Operas en Vercel + Supabase (Marzo 2026).`;
 
     // 3. MULTI-MODEL RESILIENCY 2026 (GEMINI -> GROQ -> DEEPSEEK)
