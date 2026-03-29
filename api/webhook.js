@@ -1,6 +1,8 @@
 const { Telegraf } = require("telegraf");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const Groq = require("groq-sdk");
+const axios = require("axios");
+const FormData = require("form-data");
 const supabase = require("../lib/supabase");
 const { 
   searchFiles, sendEmail, listEmails, appendSheetRow, readSheet, 
@@ -15,18 +17,17 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const geminiTools = [{
   functionDeclarations: [
     { name: "search_drive", description: "Search Drive files.", parameters: { type: "OBJECT", properties: { query: { type: "STRING" } }, required: ["query"] } },
-    { name: "send_email", description: "Envia correo real con Nodemailer.", parameters: { type: "OBJECT", properties: { to: { type: "STRING" }, subject: { type: "STRING" }, body: { type: "STRING" } }, required: ["to", "subject", "body"] } },
-    { name: "read_sheet", description: "Lee datos del Excel compartido.", parameters: { type: "OBJECT", properties: { id: { type: "STRING" }, range: { type: "STRING" } }, required: ["id", "range"] } },
-    { name: "add_event", description: "Agenda eventos en calendario real.", parameters: { type: "OBJECT", properties: { summary: { type: "STRING" }, start: { type: "STRING" }, end: { type: "STRING" } }, required: ["summary", "start", "end"] } },
-    { name: "list_calendar", description: "Mira la agenda.", parameters: { type: "OBJECT", properties: { maxResults: { type: "NUMBER" } } } }
+    { name: "send_email", description: "Send email with Nodemailer.", parameters: { type: "OBJECT", properties: { to: { type: "STRING" }, subject: { type: "STRING" }, body: { type: "STRING" } }, required: ["to", "subject", "body"] } },
+    { name: "read_sheet", description: "Read Excel contacts.", parameters: { type: "OBJECT", properties: { id: { type: "STRING" }, range: { type: "STRING" } }, required: ["id", "range"] } },
+    { name: "add_event", description: "Schedule calendar events.", parameters: { type: "OBJECT", properties: { summary: { type: "STRING" }, start: { type: "STRING" }, end: { type: "STRING" } }, required: ["summary", "start", "end"] } }
   ]
 }];
 
 const groqTools = [
-  { type: "function", function: { name: "search_drive", description: "Drive search", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
-  { type: "function", function: { name: "send_email", description: "Actual sending via Nodemailer", parameters: { type: "object", properties: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" } }, required: ["to", "subject", "body"] } } },
-  { type: "function", function: { name: "read_sheet", description: "Sheets reader", parameters: { type: "object", properties: { id: { type: "string" }, range: { type: "string" } }, required: ["id", "range"] } } },
-  { type: "function", function: { name: "add_event", description: "Calendar writer", parameters: { type: "object", properties: { summary: { type: "string" }, start: { type: "string" }, end: { type: "string" } }, required: ["summary", "start", "end"] } } }
+  { type: "function", function: { name: "search_drive", description: "Drive Search", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
+  { type: "function", function: { name: "send_email", description: "Send Gmail", parameters: { type: "object", properties: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" } }, required: ["to", "subject", "body"] } } },
+  { type: "function", function: { name: "read_sheet", description: "Read Sheets", parameters: { type: "object", properties: { id: { type: "string" }, range: { type: "string" } }, required: ["id", "range"] } } },
+  { type: "function", function: { name: "add_event", description: "Add Calendar", parameters: { type: "object", properties: { summary: { type: "string" }, start: { type: "string" }, end: { type: "string" } }, required: ["summary", "start", "end"] } } }
 ];
 
 async function executeTool(name, args) {
@@ -37,24 +38,59 @@ async function executeTool(name, args) {
   if (name === "send_email") return await sendEmail(args.to, args.subject, args.body);
   if (name === "read_sheet") return await readSheet(id, args.range);
   if (name === "add_event") return await createCalendarEvent(args.summary, start, end);
-  return "Error: Herramienta no disponible.";
+  return "Error: Tool unavailable.";
+}
+
+/**
+ * Motor Auditivo Sónico: Transcribe notas de voz vía Groq Whisper
+ */
+async function transcribeVoice(fileId) {
+  try {
+    const fileLink = await bot.telegram.getFileLink(fileId);
+    const audioRes = await axios.get(fileLink.href, { responseType: 'arraybuffer' });
+    const buffer = Buffer.from(audioRes.data);
+    
+    const form = new FormData();
+    form.append('file', buffer, { filename: 'voice.oga', contentType: 'audio/ogg' });
+    form.append('model', 'whisper-large-v3');
+    form.append('language', 'es');
+
+    const response = await axios.post('https://api.groq.com/openai/v1/audio/transcriptions', form, {
+      headers: { ...form.getHeaders(), 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` }
+    });
+    return response.data.text;
+  } catch (error) { return `ERROR_TRANSCRIPCION: ${error.message}`; }
 }
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") return res.status(200).send("OK");
   const { message } = req.body;
-  if (!message || !message.text) return res.status(200).send("OK");
+  if (!message) return res.status(200).send("OK");
 
-  const text = message.text;
+  let transcription = "";
+  if (message.voice) {
+    transcription = await transcribeVoice(message.voice.file_id);
+    console.log("Audio Transcrito:", transcription);
+  }
+
+  const text = transcription || message.text;
+  if (!text) return res.status(200).send("OK");
+
   const userId = message.from.id;
   const userName = message.from.username || message.from.first_name;
 
   try {
+    let historyContext = "";
+    try {
+      const { data } = await supabase.from("conversations_log").select("content, source").eq("user_id", userId.toString()).order("created_at", { ascending: false }).limit(5);
+      if (data) historyContext = "CONTEXTO RECIENTE:\n" + data.reverse().map(l => `- ${l.source === "telegram" ? "Usuario" : "Micnux"}: ${l.content}`).join("\n");
+      await supabase.from("conversations_log").insert([{ user_id: userId.toString(), user_name: userName, content: text, source: "telegram" }]);
+    } catch (e) {}
+
     const today = new Date().toLocaleString("es-CO", { timeZone: "America/Bogota" });
-    const systemPrompt = `Eres Micnux, el Agente Soberano de Mauricio Pineda. 
-AHORA ES: ${today}. 
-Tienes control total sobre Drive, Gmail, Sheets y Calendar. No pidas permisos de OAuth para enviar correos, YA ESTÁN CONFIGURADOS EN EL BACKEND vía Nodemailer.
-Usa add_event para Calendar y send_email para correos.`;
+    const systemPrompt = `Eres Micnux, el Asistente Soberano v.2.0. AHORA ES: ${today}.
+Recuerda el contexto: ${historyContext}.
+Si el texto viene de una nota de voz, procesalo IGUAL que el texto escrito. Eres capaz de usar tus herramientas con comandos de voz.`;
 
     let aiResponse;
     let brain;
@@ -92,12 +128,12 @@ Usa add_event para Calendar y send_email para correos.`;
       } else aiResponse = response.choices[0].message.content;
     }
 
-    const finalMsg = `${aiResponse}\n\n(⚡ Cerebro: ${brain})`;
-    try { await bot.telegram.sendMessage(userId, finalMsg, { parse_mode: "Markdown" }); } 
-    catch (p) { await bot.telegram.sendMessage(userId, finalMsg); }
+    const finalMsg = transcription ? `🎙️ **Nota de Voz Transcrita:**\n"${transcription}"\n\n${aiResponse}\n\n(⚡ Cerebro: ${brain})` : `${aiResponse}\n\n(⚡ Cerebro: ${brain})`;
+    try { await supabase.from("conversations_log").insert([{ user_id: userId.toString(), user_name: userName, content: aiResponse, source: "micnux" }]); } catch (e) {}
+    try { await bot.telegram.sendMessage(userId, finalMsg, { parse_mode: "Markdown" }); } catch (p) { await bot.telegram.sendMessage(userId, finalMsg); }
     return res.status(200).send("OK");
   } catch (error) {
-    await bot.telegram.sendMessage(userId, "🚨 *Critical Crash:* " + error.message);
+    await bot.telegram.sendMessage(userId, "🚨 *Critical Audio Crash:* " + error.message);
     return res.status(200).send("OK");
   }
 };
