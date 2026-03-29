@@ -1,7 +1,7 @@
 const { Telegraf } = require("telegraf");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const supabase = require("../lib/supabase");
-const { searchFiles, sendEmail, appendSheetRow } = require("../lib/google");
+const { searchFiles, sendEmail, appendSheetRow, createCalendarEvent } = require("../lib/google");
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -26,13 +26,13 @@ module.exports = async (req, res) => {
       const query = text.replace("/drive", "").trim();
       const files = await searchFiles(query);
       if (!files || files.length === 0) {
-        await bot.telegram.sendMessage(userId, "📂 *Google Drive:* No encontré nada. ¿Me compartiste la carpeta?", { parse_mode: "Markdown" });
+        await bot.telegram.sendMessage(userId, "📂 *Drive:* No encontré nada. ¿Me compartiste la carpeta?", { parse_mode: "Markdown" });
         return res.status(200).send("OK");
       }
       let response = "📂 *Drive (2026):*\n\n";
       files.forEach(f => { response += `• [${f.name}](${f.webViewLink})\n`; });
       await bot.telegram.sendMessage(userId, response, { parse_mode: "Markdown" });
-      return res.status(100).send("OK");
+      return res.status(200).send("OK");
     }
 
     // 0b. COMANDO GMAIL
@@ -49,18 +49,31 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    // 0c. COMANDO SHEETS: /sheet [id] [range] [v1,v2,v3]
+    // 0c. COMANDO SHEETS
     if (text.startsWith("/sheet")) {
       const match = text.match(/\/sheet ([^ ]+) ([^ ]+) (.*)/);
       if (!match) {
-        await bot.telegram.sendMessage(userId, "📊 *Uso:* `/sheet [ID_EXCEL] [Hoja1!A1] [Dato1, Dato2, ...]`", { parse_mode: "Markdown" });
+        await bot.telegram.sendMessage(userId, "📊 *Uso:* `/sheet [ID_EXCEL] [Hoja!A1] [v1, v2, ...]`", { parse_mode: "Markdown" });
         return res.status(200).send("OK");
       }
       const [_, id, range, rawValues] = match;
-      const values = rawValues.split(",").map(v => v.trim());
-      const result = await appendSheetRow(id, range, values);
-      if (result) await bot.telegram.sendMessage(userId, `📊 *Sheets:* Fila agregada a la hoja con éxito.`, { parse_mode: "Markdown" });
-      else await bot.telegram.sendMessage(userId, "🚨 *Error:* No tengo permiso para escribir en ese Excel.");
+      const result = await appendSheetRow(id, range, rawValues.split(",").map(v => v.trim()));
+      if (result) await bot.telegram.sendMessage(userId, `📊 *Sheets:* Fila agregada.`, { parse_mode: "Markdown" });
+      else await bot.telegram.sendMessage(userId, "🚨 *Error:* No puedo escribir en ese Excel.");
+      return res.status(200).send("OK");
+    }
+
+    // 0d. COMANDO CALENDAR: /event [Asunto]: YYYY-MM-DDTHH:MM [Fin] [Desc]
+    if (text.startsWith("/event")) {
+      const match = text.match(/\/event (.*): ([^ ]+) ([^ ]+) (.*)/);
+      if (!match) {
+        await bot.telegram.sendMessage(userId, "🗓️ *Uso:* `/event [Asunto]: [InicioISO] [FinISO] [Descripción]`\nEj: `/event Reunion PAIC: 2026-03-30T10:00:00 2026-03-30T11:00:00 Zoom`", { parse_mode: "Markdown" });
+        return res.status(200).send("OK");
+      }
+      const [_, summary, start, end, desc] = match;
+      const result = await createCalendarEvent(summary, start, end, desc);
+      if (result) await bot.telegram.sendMessage(userId, `🗓️ *Calendar:* Evento \`${summary}\` agendado para el \`${start}\`.`, { parse_mode: "Markdown" });
+      else await bot.telegram.sendMessage(userId, "🚨 *Error:* No tengo acceso a tu calendario principal.");
       return res.status(200).send("OK");
     }
 
@@ -71,10 +84,11 @@ module.exports = async (req, res) => {
 
     // 2. SYSTEM PROMPT (IDENTITY 2026)
     const systemPrompt = `Eres Micnux, el Asistente Inmortal de Mauricio Pineda (Bogotá).
-Fundador de ProDig (Prospectiva Digital). Tienes PODERES sobre Google Workspace:
-- Drive: Búsqueda de archivos.
-- Gmail: Envío de correos.
-- Sheets: Guardar filas en tablas.
+Fundador de ProDig (Prospectiva Digital). Tienes PODERES TOTALES sobre Google Workspace:
+- Drive: Buscar archivos con /drive.
+- Gmail: Enviar correos con /mail.
+- Sheets: Registrar datos con /sheet.
+- Calendar: Agendar eventos con /event.
 Eres técnico, visionario y fiel al protocolo A2A. Operas en Vercel + Supabase (Marzo 2026).`;
 
     // 3. MULTI-MODEL RESILIENCY 2026 (GEMINI -> GROQ -> DEEPSEEK)
