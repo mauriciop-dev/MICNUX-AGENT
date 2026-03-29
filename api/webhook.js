@@ -42,7 +42,6 @@ module.exports = async (req, res) => {
   const userName = message.from.username || message.from.first_name;
   let audioData = null;
 
-  // 🎙️ PROCESAMIENTO MULTIMODAL (Si hay voz)
   if (message.voice) {
     try {
       const fileLink = await bot.telegram.getFileLink(message.voice.file_id);
@@ -64,18 +63,18 @@ module.exports = async (req, res) => {
     } catch (e) {}
 
     const today = new Date().toLocaleString("es-CO", { timeZone: "America/Bogota" });
-    const systemPrompt = `Eres Micnux, el Asistente Soberano. AHORA ES: ${today}.
+    const systemPrompt = `Eres Micnux, el Asistente Soberano de Nueva Generación. AHORA ES: ${today}.
 Recuerda el contexto: ${historyContext}.
-Si el usuario envía audio, escúchalo y procesa sus órdenes usando tus herramientas de Drive, Gmail, Calendar y Sheets.`;
+Usas el cerebro Gemini 2.0 Flash. Escucha el audio nativo y procesalo con tus herramientas.`;
 
-    let aiResponse;
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash", systemInstruction: systemPrompt, tools: geminiTools });
+    // 🤴 ACTUALIZACIÓN A GEMINI 2.0 FLASH
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash", systemInstruction: systemPrompt, tools: geminiTools });
 
-    // 🧠 LÓGICA MULTIMODAL (Gemini procesa texto y audio a la vez)
     const promptParts = [userText];
     if (audioData) promptParts.push(audioData);
 
-    const result = await model.generateContent(promptParts);
+    let result = await model.generateContent(promptParts);
+    let aiResponse;
     const response = await result.response;
     const calls = response.functionCalls();
 
@@ -85,19 +84,27 @@ Si el usuario envía audio, escúchalo y procesa sus órdenes usando tus herrami
         const r = await executeTool(f.name, f.args);
         toolResults.push({ functionResponse: { name: f.name, response: { content: JSON.stringify(r) } } });
       }
-      // Gemini 1.5 es un Agente real, procesa los resultados de las herramientas
       const finalResult = await model.generateContent([...promptParts, { role: "model", content: { parts: response.candidates[0].content.parts } }, { role: "user", content: { parts: toolResults } }]);
       aiResponse = finalResult.response.text();
     } else {
       aiResponse = response.text();
     }
 
-    const finalMsg = `${aiResponse}\n\n(⚡ Cerebro: Gemini Native AI Master)`;
+    const finalMsg = `${aiResponse}\n\n(⚡ Cerebro: Gemini 2.0 Native)`;
     try { await supabase.from("conversations_log").insert([{ user_id: userId.toString(), user_name: userName, content: aiResponse, source: "micnux" }]); } catch (e) {}
     try { await bot.telegram.sendMessage(userId, finalMsg, { parse_mode: "Markdown" }); } catch (p) { await bot.telegram.sendMessage(userId, finalMsg); }
     return res.status(200).send("OK");
   } catch (error) {
-    await bot.telegram.sendMessage(userId, "🚨 *Critical AI Crash:* " + error.message);
+    // 🛡️ FALLBACK A GROQ SI GEMINI 2.0 TAMBIÉN FALLA (Resiliencia Extrema)
+    try {
+      const response = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "system", content: "Eres el sistema de emergencia de Micnux." }, { role: "user", content: userText || "Voz recibida" }]
+      });
+      await bot.telegram.sendMessage(userId, response.choices[0].message.content + "\n\n(🛡️ Escudo de Emergencia: Groq)");
+    } catch (e) {
+      await bot.telegram.sendMessage(userId, "🚨 *Error Crítico de Generación:* " + error.message);
+    }
     return res.status(200).send("OK");
   }
 };
