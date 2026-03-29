@@ -13,12 +13,16 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+// CONFIGURACIÓN MAESTRA DE ACTIVOS
+const DB_FILE_ID = '1BzvaD0w6LnmbeIhdLR1Q-wJBaXU-icIWgIxKEnqtU6o';
+const CONTACTS_RANGE = 'Familia!A:E';
+
 // HERRAMIENTAS UNIFICADAS SOBERANAS
 const geminiTools = [{
   functionDeclarations: [
     { name: "search_drive", description: "Search Drive files.", parameters: { type: "OBJECT", properties: { query: { type: "STRING" } }, required: ["query"] } },
     { name: "send_email", description: "Send email with Nodemailer.", parameters: { type: "OBJECT", properties: { to: { type: "STRING" }, subject: { type: "STRING" }, body: { type: "STRING" } }, required: ["to", "subject", "body"] } },
-    { name: "read_sheet", description: "Read Excel contacts.", parameters: { type: "OBJECT", properties: { id: { type: "STRING" }, range: { type: "STRING" } }, required: ["id", "range"] } },
+    { name: "read_sheet", description: "Read Excel contacts. Use DB_FILE_ID index.", parameters: { type: "OBJECT", properties: { id: { type: "STRING" }, range: { type: "STRING" } }, required: ["id", "range"] } },
     { name: "add_event", description: "Schedule calendar events.", parameters: { type: "OBJECT", properties: { summary: { type: "STRING" }, start: { type: "STRING" }, end: { type: "STRING" } }, required: ["summary", "start", "end"] } }
   ]
 }];
@@ -31,44 +35,33 @@ const groqTools = [
 ];
 
 async function executeTool(name, args) {
-  const id = args.id || args.spreadsheetId || args.docId;
+  const id = args.id || args.spreadsheetId || DB_FILE_ID;
+  const range = args.range || CONTACTS_RANGE;
   const start = args.start || args.startTime;
   const end = args.end || args.endTime;
   try {
     if (name === "search_drive") return await searchFiles(args.query);
     if (name === "send_email") return await sendEmail(args.to, args.subject, args.body);
-    if (name === "read_sheet") return await readSheet(id, args.range);
+    if (name === "read_sheet") return await readSheet(id, range);
     if (name === "add_event") return await createCalendarEvent(args.summary, start, end);
   } catch (e) { return `ERROR_TOOL_${name.toUpperCase()}: ${e.message}`; }
   return "Error: Herramienta no disponible.";
 }
 
-/**
- * Motor Auditivo Sónico v2 (Corregido)
- */
 async function transcribeVoice(fileId) {
   try {
     const fileLink = await bot.telegram.getFileLink(fileId);
     const audioRes = await axios.get(fileLink.href, { responseType: 'arraybuffer' });
     const buffer = Buffer.from(audioRes.data);
-    
-    // 🛠️ FIX: Formato de envío corregido para Groq
     const form = new FormData();
     form.append('file', buffer, { filename: 'voice.ogg', contentType: 'audio/ogg' });
     form.append('model', 'whisper-large-v3');
     form.append('language', 'es');
-
     const response = await axios.post('https://api.groq.com/openai/v1/audio/transcriptions', form, {
-      headers: { 
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        ...form.getHeaders()
-      }
+      headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, ...form.getHeaders() }
     });
     return response.data.text;
-  } catch (error) { 
-    console.error("Transcription Failed:", error.response?.data || error.message);
-    return `ERROR_TRANSCRIPCION_REAL: ${error.message}`; 
-  }
+  } catch (error) { return `ERROR_TRANSCRIPCION: ${error.message}`; }
 }
 
 module.exports = async (req, res) => {
@@ -91,14 +84,18 @@ module.exports = async (req, res) => {
 
   try {
     const today = new Date().toLocaleString("es-CO", { timeZone: "America/Bogota" });
-    const systemPrompt = `Eres Micnux, el Asistente Soberano. AHORA ES: ${today}.
-Tienes control total sobre Drive, Gmail (vía Nodemailer), Sheets y Calendar. No pidas permisos. Ejecuta órdenes directamente.`;
+    const systemPrompt = `Eres Micnux, Agente Soberano. AHORA ES: ${today}.
+TU CONTEXTO TÉCNICO:
+- Archivo de Contactos Maestro (ID): ${DB_FILE_ID}
+- Hoja de Contactos: Pestaña "Familia", rango "A:E"
+- Si te piden contactos, usa read_sheet con ese ID y Rango si no especifican otro.
+- Sé FLEXIBLE con los nombres (ej: Fredy es igual a Freddy).
+- Tienes control total. Procesa órdenes de Drive, Gmail y Calendar sin pedir permiso.`;
 
     let aiResponse;
     let brain;
 
     try {
-      // 🧠 CEREBRO PRINCIPAL: GEMINI 1.5 FLASH (Usando alias latest)
       brain = "Gemini Sovereign";
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest", systemInstruction: systemPrompt, tools: geminiTools });
       const chat = model.startChat();
@@ -114,8 +111,7 @@ Tienes control total sobre Drive, Gmail (vía Nodemailer), Sheets y Calendar. No
         aiResponse = final.response.text();
       } else aiResponse = result.response.text();
     } catch (e) {
-      // 🛡️ ESCUDO DE SOBERANÍA: GROQ LLAMA 3.3 CON HERRAMIENTAS
-      brain = "Groq Sovereign (Escudo Activo)";
+      brain = "Groq Sovereign (Resiliencia)";
       const response = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userText }],
@@ -137,7 +133,7 @@ Tienes control total sobre Drive, Gmail (vía Nodemailer), Sheets y Calendar. No
     try { await bot.telegram.sendMessage(userId, finalMsg, { parse_mode: "Markdown" }); } catch (p) { await bot.telegram.sendMessage(userId, finalMsg); }
     return res.status(200).send("OK");
   } catch (error) {
-    await bot.telegram.sendMessage(userId, "🚨 *Error Crítico de Micnux:* " + error.message);
+    await bot.telegram.sendMessage(userId, "🚨 *Error Crítico:* " + error.message);
     return res.status(200).send("OK");
   }
 };
