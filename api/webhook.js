@@ -1,6 +1,7 @@
 const { Telegraf } = require("telegraf");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const supabase = require("../lib/supabase");
+const { searchFiles } = require("../lib/google"); // <--- NUEVO PODER
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -20,37 +21,47 @@ module.exports = async (req, res) => {
     const userId = message.from.id;
     const userName = message.from.username || message.from.first_name;
 
+    // 0. COMANDO DIRECTO: /drive
+    if (text.startsWith("/drive")) {
+      const query = text.replace("/drive", "").trim();
+      const files = await searchFiles(query);
+      
+      if (!files || files.length === 0) {
+        await bot.telegram.sendMessage(userId, "📂 *Google Drive:* No encontré nada o no me has compartido carpetas.\n\n_Tip: Invítame a colaborar: agente-micnux@gen-lang-client-0221087124.iam.gserviceaccount.com_", { parse_mode: "Markdown" });
+        return res.status(200).send("OK");
+      }
+
+      let response = "📂 *Archivos encontrados en tu Drive (2026):*\n\n";
+      files.forEach(f => {
+        response += `• [${f.name}](${f.webViewLink})\n`;
+      });
+      await bot.telegram.sendMessage(userId, response, { parse_mode: "Markdown" });
+      return res.status(200).send("OK");
+    }
+
     // 1. Log in Supabase (Conversations) - Optional
     try {
       await supabase.from("conversations_log").insert([
-        { 
-          user_id: userId.toString(), 
-          user_name: userName,
-          content: text, 
-          source: "telegram"
-        }
+        { user_id: userId.toString(), user_name: userName, content: text, source: "telegram" }
       ]);
     } catch (dbError) {
       console.error("Supabase Log Error (Ignored):", dbError.message);
     }
 
-    // 0. SYSTEM PROMPT (IDENTITY 2026)
+    // 2. SYSTEM PROMPT (IDENTITY 2026)
     const systemPrompt = `Eres Micnux, el Asistente Inmortal de Mauricio Pineda (Bogotá).
-Fundador de ProDig (Prospectiva Digital). Tu misión es gestionar sus activos: PAIC, Consultores IA, NexoSalud, Validador y más.
-Tu personalidad es técnica, visionaria, proactiva y fiel al protocolo A2A. 
-Responde siempre con autoridad técnica y lealtad a Mauricio. Estás operando en Vercel + Supabase en Marzo de 2026.`;
+Fundador de ProDig (Prospectiva Digital). Tienes acceso a su Google Drive. 
+Si el usuario te pide un archivo, dile que use el comando /drive seguido del nombre.
+Eres técnico, visionario y fiel al protocolo A2A. Operas en Vercel + Supabase (Marzo 2026).`;
 
-    // 2. MULTI-MODEL RESILIENCY 2026 (GEMINI -> GROQ -> DEEPSEEK)
+    // 3. MULTI-MODEL RESILIENCY 2026 (GEMINI -> GROQ -> DEEPSEEK)
     let aiResponse;
     const geminiModels = ["gemini-1.5-flash", "gemini-2.0-flash"];
     
-    // 2a. Try Gemini
+    // 3a. Try Gemini
     for (const modelId of geminiModels) {
       try {
-        const model = genAI.getGenerativeModel({ 
-          model: modelId,
-          systemInstruction: systemPrompt 
-        });
+        const model = genAI.getGenerativeModel({ model: modelId, systemInstruction: systemPrompt });
         const result = await model.generateContent(text);
         aiResponse = result.response.text();
         if (aiResponse) break;
